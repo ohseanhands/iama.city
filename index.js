@@ -1,8 +1,11 @@
 // content of index.js
-const http = require('http')
-const port = 3000
+const config = require('./config.js');
+const port = config.port;
+const http = require('http');
 
-const preface = `
+console.log('Config: ', config);
+
+const html = `
 <html>
     <head>
         <title>iama.city</title>
@@ -24,9 +27,15 @@ const preface = `
                 bottom: 0;
             }
 
+            div.bg {
+                background-size: cover;
+                background-repeat: no-repeat;
+            }
+
             h1, h2 {
                 position: relative;
                 top: 40%;
+                text-shadow: black 0px 0px 45px;
             }
 
             h1 {
@@ -40,13 +49,220 @@ const preface = `
             a {
                 color: white;
             }
+
+            .attribution {
+                position: fixed;
+                top: unset;
+                bottom: 10px;
+                right: 10px;
+                text-align: right;
+                color: white;
+                text-shadow: black 0px 0px 45px;
+            }
+
+            /* Spinner from here: https://projects.lukehaas.me/css-loaders/ */
+            .loader,
+            .loader:after {
+                border-radius: 50%;
+                width: 10em;
+                height: 10em;
+            }
+            .loader {
+                margin: 60px auto;
+                font-size: 10px;
+                position: fixed;
+                text-indent: -9999em;
+                border-top: 1.1em solid rgba(255, 255, 255, 0.2);
+                border-right: 1.1em solid rgba(255, 255, 255, 0.2);
+                border-bottom: 1.1em solid rgba(255, 255, 255, 0.2);
+                border-left: 1.1em solid #ffffff;
+                -webkit-transform: translateZ(0);
+                -ms-transform: translateZ(0);
+                transform: translateZ(0);
+                -webkit-animation: load8 1.1s infinite linear;
+                animation: load8 1.1s infinite linear;
+            }
+            @-webkit-keyframes load8 {
+                0% {
+                    -webkit-transform: rotate(0deg);
+                    transform: rotate(0deg);
+                }
+                100% {
+                    -webkit-transform: rotate(360deg);
+                    transform: rotate(360deg);
+                }
+            }
+            @keyframes load8 {
+                0% {
+                    -webkit-transform: rotate(0deg);
+                    transform: rotate(0deg);
+                }
+                100% {
+                    -webkit-transform: rotate(360deg);
+                    transform: rotate(360deg);
+                }
+            }
+
         </style>
     </head>
     <body>
-        <div>`
-
-const postface = `
+        <div class="bg bg0"></div>
+        <div class="bg bg1"></div>
+        <div class="main-content">
+            <h1><a target="_blank" href="https://en.wikipedia.org/wiki/{{cityTitle}}">{{cityName}}</a></h1>
+            <h2><a target="_blank" href="https://en.wikipedia.org/wiki/{{countryTitle">{{countryName}}</a></h2>
         </div>
+        <div class="loader">Loading...</div>
+        <div class="attribution">Photos pulled from Wikipedia. Click city name to view.</div>
+        <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+        <script>
+            var imageObjects = [];
+            var currImg = -1;
+            var ltr = false;
+
+            var $bg0 = null, $bg1 = null;
+            
+            function loadImage(index, fn) {
+                if (index >= imageObjects.length || imageObjects[index].loaded) {
+                    return fn();
+                }
+                img = new Image();
+                img.onload = function() {
+                    imageObjects[index].loaded = true;
+                    fn();
+                };
+                img.src = imageObjects[index].url;
+            }
+
+            function updateBackground() {
+                if (imageObjects.length <= 0) {
+                    return;
+                }
+
+                $('.loader').hide();
+
+                currImg += 1;
+                if (currImg >= imageObjects.length) {
+                    currImg = 0;
+                }
+
+                loadImage(currImg + 1, function () {});
+
+                if ($bg0 === null) {
+                    $bg0 = $('.bg0');
+                    $bg1 = $('.bg1');
+                } else {
+                    var tmp = $bg0;
+                    $bg0 = $bg1;
+                    $bg1 = tmp;
+                }
+
+                var width = imageObjects[currImg].width;
+                var height = imageObjects[currImg].height;
+                
+                ltr = !ltr;
+
+                $bg0.css('background-image', 'url("' + imageObjects[currImg].url + '")');
+                $bg0.css('background-position-x', ltr ? '0%' : '100%');
+                $bg0.css('background-position-y', ltr ? '0%' : '100%');
+                
+                var hasCalledNext = false;
+                $bg0.fadeIn(1000);
+                $bg1.fadeOut(1000);
+                // Start slide
+                $bg0.animate({
+                    'background-position-x': ltr ? '100%' : '0%',
+                    'background-position-y': ltr ? '100%' : '0%'
+                }, {
+                    duration: 10000,
+                    easing: 'linear',
+                    progress: function (animation, progress, msRemaining) {
+                        if (msRemaining <= 2000 && !hasCalledNext) {
+                            console.log('msRemaining: ' + msRemaining + ' and ' + hasCalledNext);
+                            hasCalledNext = true;
+                            setTimeout(updateBackground, 0);
+                        }
+                    },
+                    complete: function () {
+                    }
+                });
+            }
+
+            var lastContinueString = null;
+            function pageDataCallback(data) {
+                var pages = data.query.pages;
+                var imageNames = [];
+
+                var keys = Object.keys(pages);
+                for (var k = 0; k < keys.length; k++) {
+                    var page = pages[keys[k]];
+
+                    var imageObjs = page.images;
+                    
+                    for (var i = 0; i < imageObjs.length; i++) {
+                        imageNames.push(imageObjs[i].title);
+                    }
+                }
+
+                var queryNamesString = imageNames.join('|');
+                var queryString = "https://en.wikipedia.org/w/api.php?format=json&action=query&titles="
+                                    + queryNamesString
+                                    + "&prop=imageinfo&iiprop=url|dimensions|mime&callback=imageDataCallback&iiurlwidth=1000";
+
+                var scriptString = '<script src="' + queryString + '"><\\/script>';
+                $('body').append($(scriptString));
+
+                if (typeof data.continue !== 'undefined') {
+                    var continueString = data.continue.imcontinue;
+                    console.log('Continue String: ' + continueString);
+                    if (continueString !== lastContinueString) {
+                        lastContinueString = continueString;
+                        var continueUrl = "https://en.wikipedia.org/w/api.php?format=json&action=query&titles={{cityTitle}}&prop=images&callback=pageDataCallback&imcontinue=" + continueString;
+                        
+                        var continueScriptString = '<script src="' + continueUrl + '"><\\/script>';
+                        $('body').append($(continueScriptString));
+                    }
+                }
+            }
+
+            var hasLoadedFirstImage = false;
+            function imageDataCallback(data) {
+                var images = data.query.pages;
+
+                console.log('All images:', images);
+
+                var keys = Object.keys(images);
+                for (var k = 0; k < keys.length; k++) {
+                    var img = images[keys[k]];
+                    if (typeof img.imageinfo === 'undefined' || img.imageinfo.length <= 0) {
+                        continue;
+                    }
+                    var imgInfo = img.imageinfo[0];
+
+                    if (imgInfo.mime === "image/jpeg" && (imgInfo.width * imgInfo.height) > (1000 * 1000)) { // minimum resolution we want to display
+                        imageObjects.push({
+                            url: imgInfo.thumburl,
+                            width: imgInfo.width,
+                            height: imgInfo.height,
+                            loaded: false,
+                            size: imgInfo.size
+                        });
+                    }
+                }
+
+                console.log('image objects: ', imageObjects);
+                if (currImg === -1) {
+                    currImg = imageObjects.length - 1;
+                }
+
+                if (imageObjects.length > 0 && !hasLoadedFirstImage) {
+                    hasLoadedFirstImage = true;
+                    loadImage(0, updateBackground);
+                }
+            }
+
+        </script>
+        <script src="https://en.wikipedia.org/w/api.php?format=json&action=query&titles={{cityTitle}}&prop=images&callback=pageDataCallback"></script>
     </body>
 </html>
 `;
@@ -57,10 +273,12 @@ const requestHandler = (request, response) => {
   const city = cities[index].city;
   const country = cities[index].country;
 
-  const cityString = '<h1><a target="_blank" href="' + city.url + '">' + city.name + '</a></h1>';
-  const countryString = '<h2><a target="_blank" href="' + country.url + '">' + country.name + '</a></h2>';
+  const webpage = html.replace(/{{cityName}}/g, city.name)
+                        .replace(/{{cityTitle}}/g, city.title)
+                        .replace(/{{countryName}}/g, country.name)
+                        .replace(/{{countryTitle}}/g, country.title);
   
-  response.end(preface + cityString + countryString + postface);
+  response.end(webpage);
 }
 
 const server = http.createServer(requestHandler)
@@ -76,2441 +294,2441 @@ server.listen(port, (err) => {
 const cities = [
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Chongqing",
+            "title": "Chongqing",
             "name": "Chongqing"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Shanghai",
+            "title": "Shanghai",
             "name": "Shanghai"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Delhi",
+            "title": "Delhi",
             "name": "Delhi"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/India",
+            "title": "India",
             "name": "India"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Beijing",
+            "title": "Beijing",
             "name": "Beijing"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Mumbai",
+            "title": "Mumbai",
             "name": "Mumbai"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/India",
+            "title": "India",
             "name": "India"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Dhaka",
+            "title": "Dhaka",
             "name": "Dhaka"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Bangladesh",
+            "title": "Bangladesh",
             "name": "Bangladesh"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Lagos",
+            "title": "Lagos",
             "name": "Lagos"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Nigeria",
+            "title": "Nigeria",
             "name": "Nigeria"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Chengdu",
+            "title": "Chengdu",
             "name": "Chengdu"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Karachi",
+            "title": "Karachi",
             "name": "Karachi"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Pakistan",
+            "title": "Pakistan",
             "name": "Pakistan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Guangzhou",
+            "title": "Guangzhou",
             "name": "Guangzhou"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Istanbul",
+            "title": "Istanbul",
             "name": "Istanbul"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Turkey",
+            "title": "Turkey",
             "name": "Turkey"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Tokyo",
+            "title": "Tokyo",
             "name": "Tokyo"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Japan",
+            "title": "Japan",
             "name": "Japan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Tianjin",
+            "title": "Tianjin",
             "name": "Tianjin"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Moscow",
+            "title": "Moscow",
             "name": "Moscow"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Russia",
+            "title": "Russia",
             "name": "Russia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/S%C3%A3o_Paulo",
+            "title": "S%C3%A3o_Paulo",
             "name": "São Paulo"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Brazil",
+            "title": "Brazil",
             "name": "Brazil"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Kinshasa",
+            "title": "Kinshasa",
             "name": "Kinshasa"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Democratic_Republic_of_the_Congo",
+            "title": "Democratic_Republic_of_the_Congo",
             "name": "DR Congo"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Lahore",
+            "title": "Lahore",
             "name": "Lahore"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Pakistan",
+            "title": "Pakistan",
             "name": "Pakistan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Cairo",
+            "title": "Cairo",
             "name": "Cairo"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Egypt",
+            "title": "Egypt",
             "name": "Egypt"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Seoul",
+            "title": "Seoul",
             "name": "Seoul"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/South_Korea",
+            "title": "South_Korea",
             "name": "Korea, South"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Jakarta",
+            "title": "Jakarta",
             "name": "Jakarta"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Indonesia",
+            "title": "Indonesia",
             "name": "Indonesia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Wenzhou",
+            "title": "Wenzhou",
             "name": "Wenzhou"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Mexico_City",
+            "title": "Mexico_City",
             "name": "Mexico City"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Mexico",
+            "title": "Mexico",
             "name": "Mexico"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Lima",
+            "title": "Lima",
             "name": "Lima"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Peru",
+            "title": "Peru",
             "name": "Peru"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/London",
+            "title": "London",
             "name": "London"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/United_Kingdom",
+            "title": "United_Kingdom",
             "name": "United Kingdom"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Bangkok",
+            "title": "Bangkok",
             "name": "Bangkok"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Thailand",
+            "title": "Thailand",
             "name": "Thailand"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Xi%27an",
+            "title": "Xi%27an",
             "name": "Xi&#39;an"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Chennai",
+            "title": "Chennai",
             "name": "Chennai"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/India",
+            "title": "India",
             "name": "India"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Bangalore",
+            "title": "Bangalore",
             "name": "Bangalore"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/India",
+            "title": "India",
             "name": "India"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/New_York_City",
+            "title": "New_York_City",
             "name": "New York City"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/United_States",
+            "title": "United_States",
             "name": "United States"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Ho_Chi_Minh_City",
+            "title": "Ho_Chi_Minh_City",
             "name": "Ho Chi Minh City"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Vietnam",
+            "title": "Vietnam",
             "name": "Vietnam"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Hyderabad",
+            "title": "Hyderabad",
             "name": "Hyderabad"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/India",
+            "title": "India",
             "name": "India"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Shenzhen",
+            "title": "Shenzhen",
             "name": "Shenzhen"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Suzhou",
+            "title": "Suzhou",
             "name": "Suzhou"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Nanjing",
+            "title": "Nanjing",
             "name": "Nanjing"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Dongguan",
+            "title": "Dongguan",
             "name": "Dongguan"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Tehran",
+            "title": "Tehran",
             "name": "Tehran"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Iran",
+            "title": "Iran",
             "name": "Iran"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Quanzhou",
+            "title": "Quanzhou",
             "name": "Quanzhou"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Shenyang",
+            "title": "Shenyang",
             "name": "Shenyang"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Bogot%C3%A1",
+            "title": "Bogot%C3%A1",
             "name": "Bogotá"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Colombia",
+            "title": "Colombia",
             "name": "Colombia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Hong_Kong",
+            "title": "Hong_Kong",
             "name": "Hong Kong"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Baghdad",
+            "title": "Baghdad",
             "name": "Baghdad"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Iraq",
+            "title": "Iraq",
             "name": "Iraq"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Fuzhou",
+            "title": "Fuzhou",
             "name": "Fuzhou"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Changsha",
+            "title": "Changsha",
             "name": "Changsha"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Wuhan",
+            "title": "Wuhan",
             "name": "Wuhan"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Hanoi",
+            "title": "Hanoi",
             "name": "Hanoi"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Vietnam",
+            "title": "Vietnam",
             "name": "Vietnam"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Rio_de_Janeiro",
+            "title": "Rio_de_Janeiro",
             "name": "Rio de Janeiro"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Brazil",
+            "title": "Brazil",
             "name": "Brazil"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Qingdao",
+            "title": "Qingdao",
             "name": "Qingdao"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Foshan",
+            "title": "Foshan",
             "name": "Foshan"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Zunyi",
+            "title": "Zunyi",
             "name": "Zunyi"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Santiago",
+            "title": "Santiago",
             "name": "Santiago"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Chile",
+            "title": "Chile",
             "name": "Chile"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Riyadh",
+            "title": "Riyadh",
             "name": "Riyadh"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Saudi_Arabia",
+            "title": "Saudi_Arabia",
             "name": "Saudi Arabia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Ahmedabad",
+            "title": "Ahmedabad",
             "name": "Ahmedabad"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/India",
+            "title": "India",
             "name": "India"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Singapore",
+            "title": "Singapore",
             "name": "Singapore"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Singapore",
+            "title": "Singapore",
             "name": "Singapore"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Shantou",
+            "title": "Shantou",
             "name": "Shantou"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Ankara",
+            "title": "Ankara",
             "name": "Ankara"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Turkey",
+            "title": "Turkey",
             "name": "Turkey"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Yangon",
+            "title": "Yangon",
             "name": "Yangon"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Myanmar",
+            "title": "Myanmar",
             "name": "Myanmar"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Saint_Petersburg",
+            "title": "Saint_Petersburg",
             "name": "Saint Petersburg"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Russia",
+            "title": "Russia",
             "name": "Russia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Sydney",
+            "title": "Sydney",
             "name": "Sydney"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Australia",
+            "title": "Australia",
             "name": "Australia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Casablanca",
+            "title": "Casablanca",
             "name": "Casablanca"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Morocco",
+            "title": "Morocco",
             "name": "Morocco"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Melbourne",
+            "title": "Melbourne",
             "name": "Melbourne"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Australia",
+            "title": "Australia",
             "name": "Australia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Abidjan",
+            "title": "Abidjan",
             "name": "Abidjan"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Ivory_Coast",
+            "title": "Ivory_Coast",
             "name": "Ivory Coast"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Alexandria",
+            "title": "Alexandria",
             "name": "Alexandria"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Egypt",
+            "title": "Egypt",
             "name": "Egypt"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Kolkata",
+            "title": "Kolkata",
             "name": "Kolkata"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/India",
+            "title": "India",
             "name": "India"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Surat",
+            "title": "Surat",
             "name": "Surat"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/India",
+            "title": "India",
             "name": "India"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Johannesburg",
+            "title": "Johannesburg",
             "name": "Johannesburg"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/South_Africa",
+            "title": "South_Africa",
             "name": "South Africa"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Dar_es_Salaam",
+            "title": "Dar_es_Salaam",
             "name": "Dar es Salaam"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Tanzania",
+            "title": "Tanzania",
             "name": "Tanzania"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Shijiazhuang",
+            "title": "Shijiazhuang",
             "name": "Shijiazhuang"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Harbin",
+            "title": "Harbin",
             "name": "Harbin"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Giza",
+            "title": "Giza",
             "name": "Giza"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Egypt",
+            "title": "Egypt",
             "name": "Egypt"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/%C4%B0zmir",
+            "title": "%C4%B0zmir",
             "name": "İzmir"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Turkey",
+            "title": "Turkey",
             "name": "Turkey"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Zhengzhou",
+            "title": "Zhengzhou",
             "name": "Zhengzhou"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/New_Taipei_City",
+            "title": "New_Taipei_City",
             "name": "New Taipei City"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Taiwan",
+            "title": "Taiwan",
             "name": "Taiwan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Los_Angeles",
+            "title": "Los_Angeles",
             "name": "Los Angeles"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/United_States",
+            "title": "United_States",
             "name": "United States"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Changchun",
+            "title": "Changchun",
             "name": "Changchun"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Cape_Town",
+            "title": "Cape_Town",
             "name": "Cape Town"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/South_Africa",
+            "title": "South_Africa",
             "name": "South Africa"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Yokohama",
+            "title": "Yokohama",
             "name": "Yokohama"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Japan",
+            "title": "Japan",
             "name": "Japan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Khartoum",
+            "title": "Khartoum",
             "name": "Khartoum"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Sudan",
+            "title": "Sudan",
             "name": "Sudan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Guayaquil",
+            "title": "Guayaquil",
             "name": "Guayaquil"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Ecuador",
+            "title": "Ecuador",
             "name": "Ecuador"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Hangzhou",
+            "title": "Hangzhou",
             "name": "Hangzhou"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Xiamen",
+            "title": "Xiamen",
             "name": "Xiamen"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Berlin",
+            "title": "Berlin",
             "name": "Berlin"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Germany",
+            "title": "Germany",
             "name": "Germany"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Busan",
+            "title": "Busan",
             "name": "Busan"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/South_Korea",
+            "title": "South_Korea",
             "name": "Korea, South"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Ningbo",
+            "title": "Ningbo",
             "name": "Ningbo"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Jeddah",
+            "title": "Jeddah",
             "name": "Jeddah"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Saudi_Arabia",
+            "title": "Saudi_Arabia",
             "name": "Saudi Arabia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Durban",
+            "title": "Durban",
             "name": "Durban"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/South_Africa",
+            "title": "South_Africa",
             "name": "South Africa"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Algiers",
+            "title": "Algiers",
             "name": "Algiers"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Algeria",
+            "title": "Algeria",
             "name": "Algeria"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Kabul",
+            "title": "Kabul",
             "name": "Kabul"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Afghanistan",
+            "title": "Afghanistan",
             "name": "Afghanistan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Hefei",
+            "title": "Hefei",
             "name": "Hefei"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Mashhad",
+            "title": "Mashhad",
             "name": "Mashhad"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Iran",
+            "title": "Iran",
             "name": "Iran"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Pyongyang",
+            "title": "Pyongyang",
             "name": "Pyongyang"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/North_Korea",
+            "title": "North_Korea",
             "name": "Korea, North"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Madrid",
+            "title": "Madrid",
             "name": "Madrid"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Spain",
+            "title": "Spain",
             "name": "Spain"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Faisalabad",
+            "title": "Faisalabad",
             "name": "Faisalabad"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Pakistan",
+            "title": "Pakistan",
             "name": "Pakistan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Baku",
+            "title": "Baku",
             "name": "Baku"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Azerbaijan",
+            "title": "Azerbaijan",
             "name": "Azerbaijan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Tangshan",
+            "title": "Tangshan",
             "name": "Tangshan"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Ekurhuleni_Metropolitan_Municipality",
+            "title": "Ekurhuleni_Metropolitan_Municipality",
             "name": "Ekurhuleni"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/South_Africa",
+            "title": "South_Africa",
             "name": "South Africa"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Nairobi",
+            "title": "Nairobi",
             "name": "Nairobi"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Kenya",
+            "title": "Kenya",
             "name": "Kenya"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Zhongshan",
+            "title": "Zhongshan",
             "name": "Zhongshan"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Pune",
+            "title": "Pune",
             "name": "Pune"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/India",
+            "title": "India",
             "name": "India"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Addis_Ababa",
+            "title": "Addis_Ababa",
             "name": "Addis Ababa"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Ethiopia",
+            "title": "Ethiopia",
             "name": "Ethiopia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Jaipur",
+            "title": "Jaipur",
             "name": "Jaipur"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/India",
+            "title": "India",
             "name": "India"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Buenos_Aires",
+            "title": "Buenos_Aires",
             "name": "Buenos Aires"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Argentina",
+            "title": "Argentina",
             "name": "Argentina"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Incheon",
+            "title": "Incheon",
             "name": "Incheon"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/South_Korea",
+            "title": "South_Korea",
             "name": "Korea, South"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Quezon_City",
+            "title": "Quezon_City",
             "name": "Quezon City"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Philippines",
+            "title": "Philippines",
             "name": "Philippines"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Toronto",
+            "title": "Toronto",
             "name": "Toronto"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Canada",
+            "title": "Canada",
             "name": "Canada"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Kiev",
+            "title": "Kiev",
             "name": "Kiev"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Ukraine",
+            "title": "Ukraine",
             "name": "Ukraine"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Salvador,_Bahia",
+            "title": "Salvador,_Bahia",
             "name": "Salvador"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Brazil",
+            "title": "Brazil",
             "name": "Brazil"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Rome",
+            "title": "Rome",
             "name": "Rome"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Italy",
+            "title": "Italy",
             "name": "Italy"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Dubai",
+            "title": "Dubai",
             "name": "Dubai"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/United_Arab_Emirates",
+            "title": "United_Arab_Emirates",
             "name": "United Arab Emirates"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Luanda",
+            "title": "Luanda",
             "name": "Luanda"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Angola",
+            "title": "Angola",
             "name": "Angola"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Lucknow",
+            "title": "Lucknow",
             "name": "Lucknow"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/India",
+            "title": "India",
             "name": "India"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Kaohsiung",
+            "title": "Kaohsiung",
             "name": "Kaohsiung"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Taiwan",
+            "title": "Taiwan",
             "name": "Taiwan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Kanpur",
+            "title": "Kanpur",
             "name": "Kanpur"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/India",
+            "title": "India",
             "name": "India"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Surabaya",
+            "title": "Surabaya",
             "name": "Surabaya"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Indonesia",
+            "title": "Indonesia",
             "name": "Indonesia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Taichung",
+            "title": "Taichung",
             "name": "Taichung"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Taiwan",
+            "title": "Taiwan",
             "name": "Taiwan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Basra",
+            "title": "Basra",
             "name": "Basra"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Iraq",
+            "title": "Iraq",
             "name": "Iraq"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Taipei",
+            "title": "Taipei",
             "name": "Taipei"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Taiwan",
+            "title": "Taiwan",
             "name": "Taiwan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Chicago",
+            "title": "Chicago",
             "name": "Chicago"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/United_States",
+            "title": "United_States",
             "name": "United States"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Osaka",
+            "title": "Osaka",
             "name": "Osaka"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Japan",
+            "title": "Japan",
             "name": "Japan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Quito",
+            "title": "Quito",
             "name": "Quito"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Ecuador",
+            "title": "Ecuador",
             "name": "Ecuador"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Chaozhou",
+            "title": "Chaozhou",
             "name": "Chaozhou"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Fortaleza",
+            "title": "Fortaleza",
             "name": "Fortaleza"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Brazil",
+            "title": "Brazil",
             "name": "Brazil"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Chittagong",
+            "title": "Chittagong",
             "name": "Chittagong"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Bangladesh",
+            "title": "Bangladesh",
             "name": "Bangladesh"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Bandung",
+            "title": "Bandung",
             "name": "Bandung"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Indonesia",
+            "title": "Indonesia",
             "name": "Indonesia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Managua",
+            "title": "Managua",
             "name": "Managua"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Nicaragua",
+            "title": "Nicaragua",
             "name": "Nicaragua"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Bras%C3%ADlia",
+            "title": "Bras%C3%ADlia",
             "name": "Brasília"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Brazil",
+            "title": "Brazil",
             "name": "Brazil"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Belo_Horizonte",
+            "title": "Belo_Horizonte",
             "name": "Belo Horizonte"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Brazil",
+            "title": "Brazil",
             "name": "Brazil"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Daegu",
+            "title": "Daegu",
             "name": "Daegu"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/South_Korea",
+            "title": "South_Korea",
             "name": "Korea, South"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Houston",
+            "title": "Houston",
             "name": "Houston"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/United_States",
+            "title": "United_States",
             "name": "United States"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Douala",
+            "title": "Douala",
             "name": "Douala"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Cameroon",
+            "title": "Cameroon",
             "name": "Cameroon"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Medellin",
+            "title": "Medellin",
             "name": "Medellin"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Colombia",
+            "title": "Colombia",
             "name": "Colombia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Yaound%C3%A9",
+            "title": "Yaound%C3%A9",
             "name": "Yaoundé"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Cameroon",
+            "title": "Cameroon",
             "name": "Cameroon"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Nagpur",
+            "title": "Nagpur",
             "name": "Nagpur"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/India",
+            "title": "India",
             "name": "India"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Cali",
+            "title": "Cali",
             "name": "Cali"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Colombia",
+            "title": "Colombia",
             "name": "Colombia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Tashkent",
+            "title": "Tashkent",
             "name": "Tashkent"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Uzbekistan",
+            "title": "Uzbekistan",
             "name": "Uzbekistan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Nagoya",
+            "title": "Nagoya",
             "name": "Nagoya"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Japan",
+            "title": "Japan",
             "name": "Japan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Isfahan",
+            "title": "Isfahan",
             "name": "Isfahan"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Iran",
+            "title": "Iran",
             "name": "Iran"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Phnom_Penh",
+            "title": "Phnom_Penh",
             "name": "Phnom Penh"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Cambodia",
+            "title": "Cambodia",
             "name": "Cambodia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Paris",
+            "title": "Paris",
             "name": "Paris"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/France",
+            "title": "France",
             "name": "France"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Ouagadougou",
+            "title": "Ouagadougou",
             "name": "Ouagadougou"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Burkina_Faso",
+            "title": "Burkina_Faso",
             "name": "Burkina Faso"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Lanzhou",
+            "title": "Lanzhou",
             "name": "Lanzhou"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Kano",
+            "title": "Kano",
             "name": "Kano"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Nigeria",
+            "title": "Nigeria",
             "name": "Nigeria"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Dalian",
+            "title": "Dalian",
             "name": "Dalian"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Guatemala_City",
+            "title": "Guatemala_City",
             "name": "Guatemala City"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Guatemala",
+            "title": "Guatemala",
             "name": "Guatemala"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Havana",
+            "title": "Havana",
             "name": "Havana"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Cuba",
+            "title": "Cuba",
             "name": "Cuba"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Rawalpindi",
+            "title": "Rawalpindi",
             "name": "Rawalpindi"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Pakistan",
+            "title": "Pakistan",
             "name": "Pakistan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Medan",
+            "title": "Medan",
             "name": "Medan"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Indonesia",
+            "title": "Indonesia",
             "name": "Indonesia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Accra",
+            "title": "Accra",
             "name": "Accra"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Ghana",
+            "title": "Ghana",
             "name": "Ghana"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Visakhapatnam",
+            "title": "Visakhapatnam",
             "name": "Visakhapatnam"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/India",
+            "title": "India",
             "name": "India"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Gujranwala",
+            "title": "Gujranwala",
             "name": "Gujranwala"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Pakistan",
+            "title": "Pakistan",
             "name": "Pakistan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Jinan",
+            "title": "Jinan",
             "name": "Jinan"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/China",
+            "title": "China",
             "name": "China"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Karaj",
+            "title": "Karaj",
             "name": "Karaj"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Iran",
+            "title": "Iran",
             "name": "Iran"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Peshawar",
+            "title": "Peshawar",
             "name": "Peshawar"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Pakistan",
+            "title": "Pakistan",
             "name": "Pakistan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Minsk",
+            "title": "Minsk",
             "name": "Minsk"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Belarus",
+            "title": "Belarus",
             "name": "Belarus"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Caracas",
+            "title": "Caracas",
             "name": "Caracas"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Venezuela",
+            "title": "Venezuela",
             "name": "Venezuela"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Sana%27a",
+            "title": "Sana%27a",
             "name": "Sana&#39;a"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Yemen",
+            "title": "Yemen",
             "name": "Yemen"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Sapporo",
+            "title": "Sapporo",
             "name": "Sapporo"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Japan",
+            "title": "Japan",
             "name": "Japan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Tainan",
+            "title": "Tainan",
             "name": "Tainan"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Taiwan",
+            "title": "Taiwan",
             "name": "Taiwan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Bucharest",
+            "title": "Bucharest",
             "name": "Bucharest"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Romania",
+            "title": "Romania",
             "name": "Romania"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Curitiba",
+            "title": "Curitiba",
             "name": "Curitiba"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Brazil",
+            "title": "Brazil",
             "name": "Brazil"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Shiraz",
+            "title": "Shiraz",
             "name": "Shiraz"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Iran",
+            "title": "Iran",
             "name": "Iran"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Vienna",
+            "title": "Vienna",
             "name": "Vienna"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Austria",
+            "title": "Austria",
             "name": "Austria"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Brazzaville",
+            "title": "Brazzaville",
             "name": "Brazzaville"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Republic_of_the_Congo",
+            "title": "Republic_of_the_Congo",
             "name": "Congo Republic"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Bhopal",
+            "title": "Bhopal",
             "name": "Bhopal"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/India",
+            "title": "India",
             "name": "India"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Almaty",
+            "title": "Almaty",
             "name": "Almaty"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Kazakhstan",
+            "title": "Kazakhstan",
             "name": "Kazakhstan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Hamburg",
+            "title": "Hamburg",
             "name": "Hamburg"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Germany",
+            "title": "Germany",
             "name": "Germany"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Manila",
+            "title": "Manila",
             "name": "Manila"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Philippines",
+            "title": "Philippines",
             "name": "Philippines"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Kuala_Lumpur",
+            "title": "Kuala_Lumpur",
             "name": "Kuala Lumpur"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Malaysia",
+            "title": "Malaysia",
             "name": "Malaysia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Maputo",
+            "title": "Maputo",
             "name": "Maputo"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Mozambique",
+            "title": "Mozambique",
             "name": "Mozambique"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Budapest",
+            "title": "Budapest",
             "name": "Budapest"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Hungary",
+            "title": "Hungary",
             "name": "Hungary"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Warsaw",
+            "title": "Warsaw",
             "name": "Warsaw"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Poland",
+            "title": "Poland",
             "name": "Poland"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Lusaka",
+            "title": "Lusaka",
             "name": "Lusaka"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Zambia",
+            "title": "Zambia",
             "name": "Zambia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Kathmandu",
+            "title": "Kathmandu",
             "name": "Kathmandu"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Nepal",
+            "title": "Nepal",
             "name": "Nepal"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Tabriz",
+            "title": "Tabriz",
             "name": "Tabriz"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Iran",
+            "title": "Iran",
             "name": "Iran"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Hyderabad,_Pakistan",
+            "title": "Hyderabad,_Pakistan",
             "name": "Hyderabad"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Pakistan",
+            "title": "Pakistan",
             "name": "Pakistan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Palembang",
+            "title": "Palembang",
             "name": "Palembang"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Indonesia",
+            "title": "Indonesia",
             "name": "Indonesia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Tijuana",
+            "title": "Tijuana",
             "name": "Tijuana"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Mexico",
+            "title": "Mexico",
             "name": "Mexico"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Patna",
+            "title": "Patna",
             "name": "Patna"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/India",
+            "title": "India",
             "name": "India"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Montreal",
+            "title": "Montreal",
             "name": "Montreal"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Canada",
+            "title": "Canada",
             "name": "Canada"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Davao_City",
+            "title": "Davao_City",
             "name": "Davao City"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Philippines",
+            "title": "Philippines",
             "name": "Philippines"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Harare",
+            "title": "Harare",
             "name": "Harare"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Zimbabwe",
+            "title": "Zimbabwe",
             "name": "Zimbabwe"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Barcelona",
+            "title": "Barcelona",
             "name": "Barcelona"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Spain",
+            "title": "Spain",
             "name": "Spain"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Maracaibo",
+            "title": "Maracaibo",
             "name": "Maracaibo"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Venezuela",
+            "title": "Venezuela",
             "name": "Venezuela"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Caloocan",
+            "title": "Caloocan",
             "name": "Caloocan"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Philippines",
+            "title": "Philippines",
             "name": "Philippines"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Philadelphia",
+            "title": "Philadelphia",
             "name": "Philadelphia"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/United_States",
+            "title": "United_States",
             "name": "United States"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Novosibirsk",
+            "title": "Novosibirsk",
             "name": "Novosibirsk"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Russia",
+            "title": "Russia",
             "name": "Russia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Phoenix,_Arizona",
+            "title": "Phoenix,_Arizona",
             "name": "Phoenix"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/United_States",
+            "title": "United_States",
             "name": "United States"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Oran",
+            "title": "Oran",
             "name": "Oran"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Algeria",
+            "title": "Algeria",
             "name": "Algeria"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Semarang",
+            "title": "Semarang",
             "name": "Semarang"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Indonesia",
+            "title": "Indonesia",
             "name": "Indonesia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Recife",
+            "title": "Recife",
             "name": "Recife"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Brazil",
+            "title": "Brazil",
             "name": "Brazil"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Kobe",
+            "title": "Kobe",
             "name": "Kobe"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Japan",
+            "title": "Japan",
             "name": "Japan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Daejeon",
+            "title": "Daejeon",
             "name": "Daejeon"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/South_Korea",
+            "title": "South_Korea",
             "name": "Korea, South"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Kampala",
+            "title": "Kampala",
             "name": "Kampala"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Uganda",
+            "title": "Uganda",
             "name": "Uganda"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Kawasaki,_Kanagawa",
+            "title": "Kawasaki,_Kanagawa",
             "name": "Kawasaki"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Japan",
+            "title": "Japan",
             "name": "Japan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Guadalajara",
+            "title": "Guadalajara",
             "name": "Guadalajara"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Mexico",
+            "title": "Mexico",
             "name": "Mexico"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Auckland",
+            "title": "Auckland",
             "name": "Auckland"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/New_Zealand",
+            "title": "New_Zealand",
             "name": "New Zealand"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Vijayawada",
+            "title": "Vijayawada",
             "name": "Vijayawada"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/India",
+            "title": "India",
             "name": "India"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Fukuoka",
+            "title": "Fukuoka",
             "name": "Fukuoka"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Japan",
+            "title": "Japan",
             "name": "Japan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Kwangju",
+            "title": "Kwangju",
             "name": "Kwangju"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/South_Korea",
+            "title": "South_Korea",
             "name": "Korea, South"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Porto_Alegre",
+            "title": "Porto_Alegre",
             "name": "Porto Alegre"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Brazil",
+            "title": "Brazil",
             "name": "Brazil"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Kyoto",
+            "title": "Kyoto",
             "name": "Kyoto"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Japan",
+            "title": "Japan",
             "name": "Japan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/San_Antonio",
+            "title": "San_Antonio",
             "name": "San Antonio"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/United_States",
+            "title": "United_States",
             "name": "United States"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Santa_Cruz_de_la_Sierra",
+            "title": "Santa_Cruz_de_la_Sierra",
             "name": "Santa Cruz de la Sierra"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Bolivia",
+            "title": "Bolivia",
             "name": "Bolivia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Munich",
+            "title": "Munich",
             "name": "Munich"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Germany",
+            "title": "Germany",
             "name": "Germany"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Kharkiv",
+            "title": "Kharkiv",
             "name": "Kharkiv"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Ukraine",
+            "title": "Ukraine",
             "name": "Ukraine"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Yekaterinburg",
+            "title": "Yekaterinburg",
             "name": "Yekaterinburg"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Russia",
+            "title": "Russia",
             "name": "Russia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/San_Diego",
+            "title": "San_Diego",
             "name": "San Diego"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/United_States",
+            "title": "United_States",
             "name": "United States"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Barranquilla",
+            "title": "Barranquilla",
             "name": "Barranquilla"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Colombia",
+            "title": "Colombia",
             "name": "Colombia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Milan",
+            "title": "Milan",
             "name": "Milan"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Italy",
+            "title": "Italy",
             "name": "Italy"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Ibadan",
+            "title": "Ibadan",
             "name": "Ibadan"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Nigeria",
+            "title": "Nigeria",
             "name": "Nigeria"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Makassar",
+            "title": "Makassar",
             "name": "Makassar"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Indonesia",
+            "title": "Indonesia",
             "name": "Indonesia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/C%C3%B3rdoba,_Argentina",
+            "title": "C%C3%B3rdoba,_Argentina",
             "name": "Córdoba"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Argentina",
+            "title": "Argentina",
             "name": "Argentina"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Prague",
+            "title": "Prague",
             "name": "Prague"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Czech_Republic",
+            "title": "Czech_Republic",
             "name": "Czech Republic"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Mandalay",
+            "title": "Mandalay",
             "name": "Mandalay"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Myanmar",
+            "title": "Myanmar",
             "name": "Myanmar"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Dallas",
+            "title": "Dallas",
             "name": "Dallas"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/United_States",
+            "title": "United_States",
             "name": "United States"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Montevideo",
+            "title": "Montevideo",
             "name": "Montevideo"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Uruguay",
+            "title": "Uruguay",
             "name": "Uruguay"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Qom",
+            "title": "Qom",
             "name": "Qom"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Iran",
+            "title": "Iran",
             "name": "Iran"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Ahvaz",
+            "title": "Ahvaz",
             "name": "Ahvaz"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Iran",
+            "title": "Iran",
             "name": "Iran"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Sofia",
+            "title": "Sofia",
             "name": "Sofia"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Bulgaria",
+            "title": "Bulgaria",
             "name": "Bulgaria"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Nizhny_Novgorod",
+            "title": "Nizhny_Novgorod",
             "name": "Nizhny Novgorod"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Russia",
+            "title": "Russia",
             "name": "Russia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Abuja",
+            "title": "Abuja",
             "name": "Abuja"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Nigeria",
+            "title": "Nigeria",
             "name": "Nigeria"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Calgary",
+            "title": "Calgary",
             "name": "Calgary"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Canada",
+            "title": "Canada",
             "name": "Canada"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Saitama,_Saitama",
+            "title": "Saitama,_Saitama",
             "name": "Saitama"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Japan",
+            "title": "Japan",
             "name": "Japan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Suwon",
+            "title": "Suwon",
             "name": "Suwon"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/South_Korea",
+            "title": "South_Korea",
             "name": "South Korea"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Hiroshima",
+            "title": "Hiroshima",
             "name": "Hiroshima"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Japan",
+            "title": "Japan",
             "name": "Japan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Rosario,_Santa_Fe",
+            "title": "Rosario,_Santa_Fe",
             "name": "Rosario"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Argentina",
+            "title": "Argentina",
             "name": "Argentina"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Brisbane",
+            "title": "Brisbane",
             "name": "Brisbane"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Australia",
+            "title": "Australia",
             "name": "Australia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Belgrade",
+            "title": "Belgrade",
             "name": "Belgrade"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Serbia",
+            "title": "Serbia",
             "name": "Serbia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Campinas",
+            "title": "Campinas",
             "name": "Campinas"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Brazil",
+            "title": "Brazil",
             "name": "Brazil"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Ulsan",
+            "title": "Ulsan",
             "name": "Ulsan"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/South_Korea",
+            "title": "South_Korea",
             "name": "Korea, South"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Omsk",
+            "title": "Omsk",
             "name": "Omsk"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Russia",
+            "title": "Russia",
             "name": "Russia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Dakar",
+            "title": "Dakar",
             "name": "Dakar"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Senegal",
+            "title": "Senegal",
             "name": "Senegal"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Abu_Dhabi",
+            "title": "Abu_Dhabi",
             "name": "Abu Dhabi"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/United_Arab_Emirates",
+            "title": "United_Arab_Emirates",
             "name": "United Arab Emirates"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Monterrey",
+            "title": "Monterrey",
             "name": "Monterrey"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Mexico",
+            "title": "Mexico",
             "name": "Mexico"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Tripoli",
+            "title": "Tripoli",
             "name": "Tripoli"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Libya",
+            "title": "Libya",
             "name": "Libya"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Rostov-on-Don",
+            "title": "Rostov-on-Don",
             "name": "Rostov-on-Don"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Russia",
+            "title": "Russia",
             "name": "Russia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/T%27bilisi",
+            "title": "T%27bilisi",
             "name": "T&#39;bilisi"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Georgia_(country)",
+            "title": "Georgia_(country)",
             "name": "Georgia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Fez,_Morocco",
+            "title": "Fez,_Morocco",
             "name": "Fez"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Morocco",
+            "title": "Morocco",
             "name": "Morocco"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Birmingham",
+            "title": "Birmingham",
             "name": "Birmingham"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/United_Kingdom",
+            "title": "United_Kingdom",
             "name": "United Kingdom"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Yerevan",
+            "title": "Yerevan",
             "name": "Yerevan"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Armenia",
+            "title": "Armenia",
             "name": "Armenia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Cologne",
+            "title": "Cologne",
             "name": "Cologne"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Germany",
+            "title": "Germany",
             "name": "Germany"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Tunis",
+            "title": "Tunis",
             "name": "Tunis"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Tunisia",
+            "title": "Tunisia",
             "name": "Tunisia"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Bulawayo",
+            "title": "Bulawayo",
             "name": "Bulawayo"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Zimbabwe",
+            "title": "Zimbabwe",
             "name": "Zimbabwe"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Astana",
+            "title": "Astana",
             "name": "Astana"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Kazakhstan",
+            "title": "Kazakhstan",
             "name": "Kazakhstan"
         },
     },
     {
         "city": {
-            "url": "https://en.wikipedia.org/wiki/Islamabad",
+            "title": "Islamabad",
             "name": "Islamabad"
         },
         "country": {
-            "url": "https://en.wikipedia.org/wiki/Pakistan",
+            "title": "Pakistan",
             "name": "Pakistan"
         }
     }
