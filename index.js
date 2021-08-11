@@ -1,5 +1,6 @@
 // content of index.js
 const config = require('./config.js');
+const hostname = config.hostname;
 const port = config.port;
 const http = require('http');
 
@@ -32,10 +33,10 @@ const html = `
                 background-repeat: no-repeat;
             }
 
-            h1, h2 {
+            h1, h2, h3 {
                 position: relative;
                 top: 40%;
-                text-shadow: black 0px 0px 45px;
+                text-shadow: black 1px 1px 4px;
             }
 
             h1 {
@@ -111,6 +112,7 @@ const html = `
         <div class="main-content">
             <h1><a target="_blank" href="https://en.wikipedia.org/wiki/{{cityTitle}}">{{cityName}}</a></h1>
             <h2><a target="_blank" href="https://en.wikipedia.org/wiki/{{countryTitle">{{countryName}}</a></h2>
+	    <h3><a href="iama.city">Show me a new city!</a></h3>
         </div>
         <div class="loader">Loading...</div>
         <div class="attribution">Photos pulled from Wikipedia. Click city name to view.</div>
@@ -283,7 +285,7 @@ const requestHandler = (request, response) => {
 
 const server = http.createServer(requestHandler)
 
-server.listen(port, (err) => {
+server.listen(port, hostname, (err) => {
   if (err) {
     return console.log('something bad happened', err)
   }
